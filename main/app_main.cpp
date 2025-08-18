@@ -143,6 +143,14 @@ extern "C" void app_main()
 #ifdef CONFIG_ENABLE_USER_ACTIVE_MODE_TRIGGER_BUTTON
     app_driver_button_init();
 #endif
+    sensor_init();
+
+    float temperature = 0;
+    float humidity = 0;
+    for( int i = 0 ; i < 30; i++ ) {
+    sensor_get(&temperature, &humidity);
+    }
+
     /* Create a Matter node and add the mandatory Root Node device type on endpoint 0 */
     node::config_t node_config;
     node_t *node = node::create(&node_config, app_attribute_update_cb, app_identification_cb);

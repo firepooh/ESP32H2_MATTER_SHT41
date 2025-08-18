@@ -14,11 +14,40 @@
 #include <iot_button.h>
 #include <button_gpio.h>
 
+#include <sht4x.h>
+
+#define CONFIG_EXAMPLE_I2C_MASTER_SCL       GPIO_NUM_2
+#define CONFIG_EXAMPLE_I2C_MASTER_SDA       GPIO_NUM_3
+#define CONFIG_I2C_MASTER_NUM               I2C_NUM_0
+
 #ifdef CONFIG_ENABLE_USER_ACTIVE_MODE_TRIGGER_BUTTON
 using namespace chip::app::Clusters;
 using namespace esp_matter;
 
 static constexpr char *TAG = "app_driver";
+static constexpr char *TAG_SENSOR = "sensor";
+
+static sht4x_t dev;
+
+void sensor_init( void )
+{
+    ESP_ERROR_CHECK(i2cdev_init());
+    memset(&dev, 0, sizeof(sht4x_t));
+
+    ESP_ERROR_CHECK(sht4x_init_desc(&dev, CONFIG_I2C_MASTER_NUM, CONFIG_EXAMPLE_I2C_MASTER_SDA, CONFIG_EXAMPLE_I2C_MASTER_SCL));
+    ESP_ERROR_CHECK(sht4x_init(&dev));
+}
+
+void sensor_get( float *temperature, float *humidity )
+{
+    TickType_t last_wakeup = xTaskGetTickCount();
+
+    ESP_ERROR_CHECK(sht4x_measure(&dev, temperature, humidity));
+    ESP_LOGI(TAG_SENSOR,"sht4x Sensor: %.2f °C, %.2f %%\n", *temperature, *humidity);
+
+    // wait until 5 seconds are over
+    vTaskDelayUntil(&last_wakeup, pdMS_TO_TICKS(5000));
+}
 
 static void app_driver_button_toggle_cb(void *arg, void *data)
 {

@@ -1,3 +1,8 @@
 dependencies:
   espressif/button:
-    version: "^4"
+    version: ^4
+  esp-idf-lib/i2cdev:
+    version: "*"
+  esp-idf-lib/esp_idf_lib_helpers:
+    version: "*"
+  esp-idf-lib/sht4x: '*'
