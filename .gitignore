@@ -1,0 +1,57 @@
+# === ESP-IDF Build Artifacts ===
+build/
+*.elf
+*.map
+*.bin
+!out/**/*.bin      # 단, out/ 폴더 안의 .bin 파일은 포함
+*.hex
+*.a
+*.d
+*.o
+*.S
+
+# === IDF Component Manager 디렉토리 ===
+managed_components/
+
+# === SDK Configuration Files ===
+sdkconfig.old
+project_description.json
+
+# >>> 선택 사항: sdkconfig 무시 여부
+sdkconfig
+# sdkconfig.defaults
+
+# === CMake / Ninja Artifacts ===
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+*.cmake
+Makefile
+
+# === Python (ESP-IDF Tools, Virtualenv) ===
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.python_env/
+env/
+venv/
+*.egg-info/
+
+# === ccache (if used) ===
+ccache/
+
+# === VSCode, CLion ===
+.vscode/
+.idea/
+*.code-workspace
+
+# === OS Temporary Files ===
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*.bak
+
+# === Git Patch Backups ===
+*.orig
