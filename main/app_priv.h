@@ -15,8 +15,11 @@ typedef void *app_driver_handle_t;
 
 app_driver_handle_t app_driver_button_init();
 
+using namespace esp_matter;
+
 void sensor_init( void );
-void sensor_get( float *temperature, float *humidity );
+void sensor_start( uint32_t interval_secs );
+void sensor_create_endpoints(node_t *node);
 
 #if CHIP_DEVICE_CONFIG_ENABLE_THREAD
 #include "esp_openthread_types.h"

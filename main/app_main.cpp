@@ -144,21 +144,14 @@ extern "C" void app_main()
     app_driver_button_init();
 #endif
     sensor_init();
-
-    float temperature = 0;
-    float humidity = 0;
-    for( int i = 0 ; i < 30; i++ ) {
-    sensor_get(&temperature, &humidity);
-    }
+    sensor_start(10);
 
     /* Create a Matter node and add the mandatory Root Node device type on endpoint 0 */
     node::config_t node_config;
     node_t *node = node::create(&node_config, app_attribute_update_cb, app_identification_cb);
     ABORT_APP_ON_FAILURE(node != nullptr, ESP_LOGE(TAG, "Failed to create Matter node"));
 
-    endpoint::on_off_light::config_t endpoint_config;
-    endpoint_t *app_endpoint = endpoint::on_off_light::create(node, &endpoint_config, ENDPOINT_FLAG_NONE, NULL);
-    ABORT_APP_ON_FAILURE(app_endpoint != nullptr, ESP_LOGE(TAG, "Failed to create on off light endpoint"));
+    sensor_create_endpoints(node);
 
 #if CHIP_DEVICE_CONFIG_ENABLE_THREAD
     /* Set OpenThread platform config */
