@@ -55,7 +55,7 @@ typedef struct {
 
 typedef struct {
     sht4x_t dev;
-    sensor_config_t *config;
+    sensor_config_t config;
     esp_timer_handle_t timer;
     bool is_initialized = false;
 
@@ -143,18 +143,24 @@ void sensor_init( void )
 void sensor_timer_callback(void *arg)
 {
   auto *ctx = (sensor_ctx_t *) arg;
+
+  if( ctx == NULL ) 
+    return;
+
+  #if 0
   if (!(ctx && ctx->config)) {
     return;
   }
+  #endif
 
   float temp, humidity;
   sensor_get(&temp, &humidity);
 
-  if (ctx->config->temperature.cb) {
-    ctx->config->temperature.cb(ctx->config->temperature.endpoint_id, temp, ctx->config->user_data);
+  if (ctx->config.temperature.cb) {
+    ctx->config.temperature.cb(ctx->config.temperature.endpoint_id, temp, ctx->config.user_data);
   }
-  if (ctx->config->humidity.cb) {
-    ctx->config->humidity.cb(ctx->config->humidity.endpoint_id, humidity, ctx->config->user_data);
+  if (ctx->config.humidity.cb) {
+    ctx->config.humidity.cb(ctx->config.humidity.endpoint_id, humidity, ctx->config.user_data);
   }
 
 #if defined(CONFIG_BATT_LEVEL_USED)
@@ -183,10 +189,10 @@ void sensor_start( uint32_t interval_secs )
       .name = "sensor_timer",
   };
 
-  s_ctx.config->interval_ms = interval_secs * 1000;
+  s_ctx.config.interval_ms = interval_secs * 1000;
 
   ESP_ERROR_CHECK(esp_timer_create(&timer_args, &s_ctx.timer));
-  ESP_ERROR_CHECK(esp_timer_start_periodic(s_ctx.timer, s_ctx.config->interval_ms * 1000));
+  ESP_ERROR_CHECK(esp_timer_start_periodic(s_ctx.timer, s_ctx.config.interval_ms * 1000));
 }
 
 void sensor_get( float *temperature, float *humidity )
@@ -322,16 +328,16 @@ void sensor_create_endpoints(node_t *node)
     endpoint_t * temp_sensor_ep = temperature_sensor::create(node, &temp_sensor_config, ENDPOINT_FLAG_NONE, NULL);
     ABORT_APP_ON_FAILURE(temp_sensor_ep != nullptr, ESP_LOGE(TAG_SENSOR, "Failed to create temperature_sensor endpoint"));
 
-    s_ctx.config->temperature.cb = temp_sensor_notification;
-    s_ctx.config->temperature.endpoint_id = endpoint::get_id(temp_sensor_ep);
+    s_ctx.config.temperature.cb = temp_sensor_notification;
+    s_ctx.config.temperature.endpoint_id = endpoint::get_id(temp_sensor_ep);
 
     // add the humidity sensor device
     humidity_sensor::config_t humidity_sensor_config;
     endpoint_t * humidity_sensor_ep = humidity_sensor::create(node, &humidity_sensor_config, ENDPOINT_FLAG_NONE, NULL);
     ABORT_APP_ON_FAILURE(humidity_sensor_ep != nullptr, ESP_LOGE(TAG_SENSOR, "Failed to create humidity_sensor endpoint"));
 
-    s_ctx.config->humidity.cb = humidity_sensor_notification;
-    s_ctx.config->humidity.endpoint_id = endpoint::get_id(humidity_sensor_ep);
+    s_ctx.config.humidity.cb = humidity_sensor_notification;
+    s_ctx.config.humidity.endpoint_id = endpoint::get_id(humidity_sensor_ep);
 
     #if defined(CONFIG_BATT_LEVEL_USED)
     // Battery (Power Source)

@@ -123,6 +123,25 @@ static esp_err_t app_attribute_update_cb(attribute::callback_type_t type, uint16
     return err;
 }
 
+#include "esp_openthread.h"
+#include <openthread/platform/radio.h>
+
+void set_tx_power(void) 
+{
+    int8_t tx_power = 10;
+    otError error;
+    otInstance *ins = esp_openthread_get_instance();
+    if( otPlatRadioSetTransmitPower(ins, tx_power) != OT_ERROR_NONE) {
+        ESP_LOGE(TAG, "Failed to set TX power");
+    }
+
+    if( otPlatRadioGetTransmitPower(ins, &tx_power) != OT_ERROR_NONE) {
+        ESP_LOGE(TAG, "Failed to get TX power");
+    }
+
+    ESP_LOGI(TAG, "Current TX power: %d dBm", tx_power);
+}
+
 extern "C" void app_main()
 {
     esp_err_t err = ESP_OK;
@@ -143,8 +162,9 @@ extern "C" void app_main()
 #ifdef CONFIG_ENABLE_USER_ACTIVE_MODE_TRIGGER_BUTTON
     app_driver_button_init();
 #endif
-    sensor_init();
-    sensor_start(10);
+    
+    //sensor_init();
+    //sensor_start(60);
 
     /* Create a Matter node and add the mandatory Root Node device type on endpoint 0 */
     node::config_t node_config;
@@ -161,9 +181,15 @@ extern "C" void app_main()
         .port_config = ESP_OPENTHREAD_DEFAULT_PORT_CONFIG(),
     };
     set_openthread_platform_config(&config);
+
+    //set_tx_power();
 #endif
 
     /* Matter start */
     err = esp_matter::start(app_event_cb);
     ABORT_APP_ON_FAILURE(err == ESP_OK, ESP_LOGE(TAG, "Failed to start Matter, err:%d", err));
+
+    vTaskDelay(pdMS_TO_TICKS(5000));
+    set_tx_power();
+    
 }
