@@ -163,8 +163,8 @@ extern "C" void app_main()
     app_driver_button_init();
 #endif
     
-    //sensor_init();
-    //sensor_start(60);
+    sensor_init();
+    sensor_start(60);
 
     /* Create a Matter node and add the mandatory Root Node device type on endpoint 0 */
     node::config_t node_config;
