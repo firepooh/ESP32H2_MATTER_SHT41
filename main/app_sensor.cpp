@@ -10,7 +10,7 @@
 
 #include <sht4x.h>
 
-#define CONFIG_BATT_LEVEL_USED
+//#define CONFIG_BATT_LEVEL_USED
 
 #if defined(CONFIG_BATT_LEVEL_USED)
 #include <esp_adc/adc_oneshot.h>
@@ -251,7 +251,23 @@ void battery_status_notification(uint16_t endpoint_id, float voltage, uint8_t pe
         ESP_LOGE(TAG_SENSOR, "Battery endpoint not initialized");
         return;
     }
+    #if 1
+    uint32_t voltage_mv = (uint32_t)(voltage * 1000);
     
+    chip::DeviceLayer::SystemLayer().ScheduleLambda([endpoint_id, voltage_mv, percentage]() {
+        // BatPercentRemaining 업데이트
+        esp_matter_attr_val_t percent_val = esp_matter_nullable_uint8(percentage * 2);
+        attribute::update(endpoint_id, PowerSource::Id, 
+                         PowerSource::Attributes::BatPercentRemaining::Id, &percent_val);
+        
+        // BatVoltage 업데이트
+        esp_matter_attr_val_t voltage_val = esp_matter_nullable_uint32(voltage_mv);
+        attribute::update(endpoint_id, PowerSource::Id,
+                         PowerSource::Attributes::BatVoltage::Id, &voltage_val);
+        
+        //ESP_LOGI(TAG_SENSOR, "Battery updated: %dmV, %d%%", voltage_mv, percentage);
+    });
+    #else
     uint32_t voltage_mv = (uint32_t)(voltage * 1000); // V를 mV로 변환
     
     // Matter thread에서 실행되도록 스케줄링
@@ -298,14 +314,44 @@ void battery_status_notification(uint16_t endpoint_id, float voltage, uint8_t pe
         
         ESP_LOGI(TAG_SENSOR, "Battery status updated: %.2fV, %d%%", voltage_mv/1000.0f, percentage);
     });
+    #endif
 }
 
 // Battery sensor endpoint 생성
 static void create_battery_endpoint(node_t *node)
 {
-  power_source_device::config_t battery_config;
+  power_source_device::config_t battery_config = {};
+
+  // Battery feature flag 설정 (0x02 = Battery feature)
+  battery_config.power_source.feature_flags = 0x02;
+
+    // Battery feature config
+    battery_config.power_source.features.battery.bat_charge_level = 0; // Ok
+    battery_config.power_source.features.battery.bat_replacement_needed = false;
+    battery_config.power_source.features.battery.bat_replaceability = 1; // NotReplaceable
+    
+    // 기본 설정
+    battery_config.power_source.status = 0;
+    battery_config.power_source.order = 1;
+    strncpy(battery_config.power_source.description, "Battery", esp_matter::cluster::power_source::k_max_description_length);
+
   endpoint_t * battery_ep = endpoint::power_source_device::create(node, &battery_config, ENDPOINT_FLAG_NONE, NULL);  
   ABORT_APP_ON_FAILURE(battery_ep != nullptr, ESP_LOGE(TAG_SENSOR, "Failed to create battery endpoint"));
+
+    // 배터리 속성 수동 추가 (필요한 경우)
+    cluster_t *power_source_cluster = cluster::get(battery_ep, PowerSource::Id);
+    if (power_source_cluster) {
+        // BatVoltage attribute 추가
+        esp_matter_attr_val_t bat_voltage_val = esp_matter_nullable_uint32(4200); // 4.2V
+        attribute::create(power_source_cluster, PowerSource::Attributes::BatVoltage::Id, 
+                         ATTRIBUTE_FLAG_NULLABLE, bat_voltage_val);
+        
+        // BatPercentRemaining attribute 추가  
+        esp_matter_attr_val_t bat_percent_val = esp_matter_nullable_uint8(200); // 100%
+        attribute::create(power_source_cluster, PowerSource::Attributes::BatPercentRemaining::Id,
+                         ATTRIBUTE_FLAG_NULLABLE, bat_percent_val);
+    }
+
 
   s_ctx.config.battery.cb = battery_status_notification;
   s_ctx.config.battery.endpoint_id = endpoint::get_id(battery_ep);

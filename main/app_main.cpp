@@ -146,6 +146,10 @@ extern "C" void app_main()
 {
     esp_err_t err = ESP_OK;
 
+    // 전역 로그 레벨 설정 (모든 태그에 적용)
+    esp_log_level_set("*", ESP_LOG_ERROR);
+
+
     /* Initialize the ESP NVS layer */
     nvs_flash_init();
 
