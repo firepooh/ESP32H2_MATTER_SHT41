@@ -10,7 +10,7 @@
 
 #include <sht4x.h>
 
-//#define CONFIG_BATT_LEVEL_USED
+#define CONFIG_BATT_LEVEL_USED
 
 #if defined(CONFIG_BATT_LEVEL_USED)
 #include <esp_adc/adc_oneshot.h>
@@ -35,6 +35,7 @@
 
 
 using sensor_cb_t = void (*)(uint16_t endpoint_id, float value, void *user_data);
+using sensor1_cb_t = void (*)(uint16_t endpoint_id, float value1, uint8_t value2, void *user_data);
 
 typedef struct {
     struct {
@@ -46,6 +47,14 @@ typedef struct {
         sensor_cb_t cb = NULL;  // This callback functon will be called periodically to report the humidity.
         uint16_t endpoint_id;   // endpoint_id associated with humidity sensor
     } humidity;
+
+    struct {
+        sensor1_cb_t cb = NULL;  // This callback functon will be called periodically to report the humidity.
+        uint16_t endpoint_id;   // endpoint_id associated with humidity sensor
+
+        float   voltage = 4.0f;
+        uint8_t percent = 50;
+    } battery;    
 
     void *user_data = NULL;     // user data
 
@@ -63,8 +72,6 @@ typedef struct {
 #if defined(CONFIG_BATT_LEVEL_USED)
     adc_oneshot_unit_handle_t adc_unit = nullptr;
     adc_cali_handle_t adc_cali = nullptr;
-    uint32_t vBattmV;
-    uint16_t ps_endpoint_id = 0; // Power Source endpoint id    
 #endif    
 } sensor_ctx_t;
 
@@ -82,9 +89,8 @@ static void temp_sensor_notification(uint16_t endpoint_id, float temp, void *use
 static void humidity_sensor_notification(uint16_t endpoint_id, float humidity, void *user_data);
 void sensor_get( float *temperature, float *humidity );
 #if defined(CONFIG_BATT_LEVEL_USED)
-static void battery_update_notification(uint16_t endpoint_id, uint32_t mv);
-static uint8_t vbat_mv_to_percent_x2(uint32_t mv);
-static uint32_t battery_read_vbat_mv( void );
+
+
 #endif
 
 #if defined(CONFIG_BATT_LEVEL_USED)
@@ -164,19 +170,17 @@ void sensor_timer_callback(void *arg)
   }
 
 #if defined(CONFIG_BATT_LEVEL_USED)
-  if (ctx->ps_endpoint_id) {
-    #if 0
-    uint32_t vbat_mv = battery_read_vbat_mv();
-    #else
-    ctx->vBattmV += 100;
-    if( ctx->vBattmV > 4200 ) ctx->vBattmV = 3000; // Simulate battery voltage
-    #endif
-    
-    battery_update_notification(ctx->ps_endpoint_id, ctx->vBattmV);
 
-    ESP_LOGI(TAG_SENSOR, "Battery: %lu mV, %u/200 (%.1f%%)",
-             (unsigned long)(ctx->vBattmV), (unsigned)(vbat_mv_to_percent_x2(ctx->vBattmV)), (double)(vbat_mv_to_percent_x2(ctx->vBattmV) / 2.0f));
-  }  
+  ctx->config.battery.voltage += 0.1f;
+  if( ctx->config.battery.voltage > 4.2f ) ctx->config.battery.voltage = 3.0f; // Simulate battery voltage
+
+  ctx->config.battery.percent += 10;
+  if( ctx->config.battery.percent > 100 ) ctx->config.battery.percent = 0; // Simulate battery percentage
+
+  if (ctx->config.battery.cb ) {
+    ctx->config.battery.cb(ctx->config.battery.endpoint_id, ctx->config.battery.voltage, ctx->config.battery.percent, ctx->config.user_data);
+  }
+
 #endif  
 }
 
@@ -241,84 +245,72 @@ static void humidity_sensor_notification(uint16_t endpoint_id, float humidity, v
 }
 
 #if defined(CONFIG_BATT_LEVEL_USED)
-static uint8_t vbat_mv_to_percent_x2(uint32_t mv)
+void battery_status_notification(uint16_t endpoint_id, float voltage, uint8_t percentage, void *user_data)
 {
-    if (mv <= VBAT_EMPTY_MV) return 0;
-    if (mv >= VBAT_FULL_MV)  return 200;
-    return (uint8_t)(((mv - VBAT_EMPTY_MV) * 200) / (VBAT_FULL_MV - VBAT_EMPTY_MV));
-}
-
-static uint32_t battery_read_vbat_mv( void )
-{
-    int raw = 0;
-    ESP_ERROR_CHECK(adc_oneshot_read(s_ctx.adc_unit, VBAT_ADC_CHANNEL, &raw));
-    int mv = raw; // fallback
-    if (s_ctx.adc_cali) {
-        ESP_ERROR_CHECK(adc_cali_raw_to_voltage(s_ctx.adc_cali, raw, &mv)); // 분배 전 입력핀 mV
+    if (endpoint_id == 0) {
+        ESP_LOGE(TAG_SENSOR, "Battery endpoint not initialized");
+        return;
     }
-    // 분배비 보정: Vbat = Vin * (R1 + R2) / R2
-    uint64_t vbat = (uint64_t)mv * (VBAT_DIV_R1 + VBAT_DIV_R2) / VBAT_DIV_R2;
-    return (uint32_t)vbat; // mV
-}
-
-static void battery_update_notification(uint16_t endpoint_id, uint32_t mv)
-{
-    uint8_t pct_x2 = vbat_mv_to_percent_x2(mv);
-
-    chip::DeviceLayer::SystemLayer().ScheduleLambda([endpoint_id, mv, pct_x2]() {
-        using namespace esp_matter;
-        using namespace esp_matter::attribute;
-        using namespace chip::app::Clusters;
-
-        // BatVoltage (mV)
-        if (attribute_t *attr_v = get(endpoint_id, PowerSource::Id,
-                                      PowerSource::Attributes::BatVoltage::Id)) {
-            esp_matter_attr_val_t val = esp_matter_invalid(NULL);
-            get_val(attr_v, &val);     // 현재 타입 메타를 따라감(Nullable 포함)
-            val.val.u32 = mv;          // mV
-            update(endpoint_id, PowerSource::Id,
-                   PowerSource::Attributes::BatVoltage::Id, &val);
+    
+    uint32_t voltage_mv = (uint32_t)(voltage * 1000); // V를 mV로 변환
+    
+    // Matter thread에서 실행되도록 스케줄링
+    chip::DeviceLayer::SystemLayer().ScheduleLambda([endpoint_id, voltage_mv, percentage]() {
+        // 배터리 퍼센트 업데이트
+        attribute_t * attr_percent = attribute::get(endpoint_id,
+                                                    PowerSource::Id,
+                                                    PowerSource::Attributes::BatPercentRemaining::Id);
+        
+        esp_matter_attr_val_t val = esp_matter_invalid(NULL);
+        attribute::get_val(attr_percent, &val);
+        val.val.u8 = percentage * 2;  // 0-200, 0.5% 단위
+        attribute::update(endpoint_id, PowerSource::Id, 
+                         PowerSource::Attributes::BatPercentRemaining::Id, &val);
+        
+        // 배터리 전압 업데이트
+        attribute_t * attr_voltage = attribute::get(endpoint_id,
+                                                    PowerSource::Id,
+                                                    PowerSource::Attributes::BatVoltage::Id);
+        
+        attribute::get_val(attr_voltage, &val);
+        val.val.u32 = voltage_mv;
+        attribute::update(endpoint_id, PowerSource::Id,
+                         PowerSource::Attributes::BatVoltage::Id, &val);
+        
+        // 충전 레벨 상태 업데이트
+        attribute_t * attr_level = attribute::get(endpoint_id,
+                                                  PowerSource::Id,
+                                                  PowerSource::Attributes::BatChargeLevel::Id);
+        
+        PowerSource::BatChargeLevelEnum level;
+        if (percentage >= 70) {
+            level = PowerSource::BatChargeLevelEnum::kOk;
+        } else if (percentage >= 30) {
+            level = PowerSource::BatChargeLevelEnum::kWarning;
+        } else {
+            level = PowerSource::BatChargeLevelEnum::kCritical;
         }
-
-        // BatPercentRemaining (0~200, 0.5% 단위)
-        if (attribute_t *attr_p = get(endpoint_id, PowerSource::Id,
-                                      PowerSource::Attributes::BatPercentRemaining::Id)) {
-            esp_matter_attr_val_t val = esp_matter_invalid(NULL);
-            get_val(attr_p, &val);
-            val.val.u8 = pct_x2;       // 0~200
-            update(endpoint_id, PowerSource::Id,
-                   PowerSource::Attributes::BatPercentRemaining::Id, &val);
-        }
+        
+        attribute::get_val(attr_level, &val);
+        val.val.u8 = static_cast<uint8_t>(level);
+        attribute::update(endpoint_id, PowerSource::Id,
+                         PowerSource::Attributes::BatChargeLevel::Id, &val);
+        
+        ESP_LOGI(TAG_SENSOR, "Battery status updated: %.2fV, %d%%", voltage_mv/1000.0f, percentage);
     });
 }
 
-
-static void power_source_create_endpoint(node_t *node)
+// Battery sensor endpoint 생성
+static void create_battery_endpoint(node_t *node)
 {
-    // 1) Power Source 디바이스 엔드포인트 생성
-    power_source_device::config_t ps_cfg = {};
-    // description은 device-config 내부의 cluster-config에 들어있습니다.
-    strncpy(ps_cfg.power_source.description, "Main Battery",sizeof(ps_cfg.power_source.description) - 1);
+  endpoint::power_source_device::config_t battery_config;
+  endpoint_t * battery_ep = endpoint::power_source_device::create(node, &battery_config, ENDPOINT_FLAG_NONE, NULL);  
+  ABORT_APP_ON_FAILURE(battery_ep != nullptr, ESP_LOGE(TAG_SENSOR, "Failed to create battery endpoint"));
 
-    // (선택) 교체 가능/충전가능 등 속성 프리셋은 features.battery 쪽에 설정
-    ps_cfg.power_source.features.battery.bat_replaceability = (uint8_t)chip::app::Clusters::PowerSource::BatReplaceabilityEnum::kNotReplaceable;
-    ps_cfg.power_source.features.battery.bat_charge_level = (uint8_t)chip::app::Clusters::PowerSource::BatChargeLevelEnum::kOk;
-
-    endpoint_t *ps_ep = power_source_device::create(node, &ps_cfg, ENDPOINT_FLAG_NONE, NULL);
-    ABORT_APP_ON_FAILURE(ps_ep != nullptr,ESP_LOGE(TAG_SENSOR, "Failed to create power_source endpoint"));
-
-    s_ctx.ps_endpoint_id = endpoint::get_id(ps_ep);
-
-    // 2) 배터리 기능(feature) 활성화 + 속성 생성
-    cluster_t *ps_cluster = esp_matter::cluster::get(ps_ep, chip::app::Clusters::PowerSource::Id);
-
-    // 네임스페이스를 완전수식으로 호출(가장 안전)
-    ESP_ERROR_CHECK( esp_matter::cluster::power_source::feature::battery::add(ps_cluster, &ps_cfg.power_source.features.battery));
-
-    // (버전에 따라 자동 생성될 수도 있음)
-    esp_matter::cluster::power_source::attribute::create_bat_percent_remaining(ps_cluster, nullable<uint8_t>(50), /*min*/0, /*max*/200);
-    esp_matter::cluster::power_source::attribute::create_bat_voltage(ps_cluster, nullable<uint32_t>(4200), /*min*/0, /*max*/6000);
+  s_ctx.config.battery.cb = battery_status_notification;
+  s_ctx.config.battery.endpoint_id = endpoint::get_id(battery_ep);
 }
+
 #endif
 
 void sensor_create_endpoints(node_t *node)
@@ -340,7 +332,6 @@ void sensor_create_endpoints(node_t *node)
     s_ctx.config.humidity.endpoint_id = endpoint::get_id(humidity_sensor_ep);
 
     #if defined(CONFIG_BATT_LEVEL_USED)
-    // Battery (Power Source)
-    power_source_create_endpoint(node);
+    create_battery_endpoint(node);
     #endif
 }
