@@ -303,7 +303,7 @@ void battery_status_notification(uint16_t endpoint_id, float voltage, uint8_t pe
 // Battery sensor endpoint 생성
 static void create_battery_endpoint(node_t *node)
 {
-  endpoint::power_source_device::config_t battery_config;
+  power_source_device::config_t battery_config;
   endpoint_t * battery_ep = endpoint::power_source_device::create(node, &battery_config, ENDPOINT_FLAG_NONE, NULL);  
   ABORT_APP_ON_FAILURE(battery_ep != nullptr, ESP_LOGE(TAG_SENSOR, "Failed to create battery endpoint"));
 
